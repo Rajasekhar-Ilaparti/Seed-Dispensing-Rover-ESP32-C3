@@ -27,7 +27,9 @@ An **MPU6050** gyro gives accurate 90° turns, keeps the rover driving straight,
 **Seed dispensing**
 - **Dispense once**, or **continuous dispense** at a set interval while driving
 - Adjustable swing speed, cycles per drop, and interval
-- Servo calibration page: move the arm live, store the closed and open angles, test, and save
+- Hopper angles are locked in the firmware (closed 135°, open 75°), so the dispenser can't be mis-set from the controller
+- Dispense timing (swing speed, hold time, swings) can be tested before saving, and Save asks for confirmation
+- The Drive tab always uses the saved dispense settings
 - Counts completed dispense cycles since power-on
 
 **Navigation and calibration**
@@ -137,7 +139,7 @@ espota.exe -i 192.168.4.1 -p 3232 --auth=12345678 -f C3_Seed_Rover.ino.bin -r
 | Tab | What it does |
 |---|---|
 | **Drive** | Joystick, speed limit, heading, tilt, motor output, dispense once / continuous |
-| **Dispenser** | Servo calibration: live angle, closed and open angles, swing speed, hold time, swings per drop |
+| **Dispenser** | Locked hopper angles (read-only), and dispense timing: swing speed, hold time, swings per drop |
 | **Calibration** | Square-path timing, gyro turns, hold straight, turn angle, gyro recalibration |
 | **System** | Uptime, last reset reason, memory, gyro status, event log, diagnostics |
 
@@ -173,9 +175,8 @@ ESP32-C3 main loop (non-blocking, millis() state machines)
 | `/joy?x=&y=&s=` | Joystick fallback (x, y −100…100, s = speed %) |
 | `/disp?sp=&n=` | Dispense once (swing speed °/s, cycles) |
 | `/cont?on=&sp=&n=&i=` | Continuous dispense on/off (i = interval ms) |
-| `/servo/set?a=` | Move the servo to an angle (calibration) |
-| `/servo/test?c=&o=&sp=&h=&n=` | Test dispense with the given values (not saved) |
-| `/servo/save?c=&o=&sp=&h=&n=` | Save servo settings |
+| `/servo/test?sp=&h=&n=` | Test dispense with the given timing (not saved) |
+| `/servo/save?sp=&h=&n=` | Save dispense timing (the angles are locked) |
 | `/test?turn=` | Test a right turn |
 | `/square` | Run the square path |
 | `/save?fwd=&turn=&ta=&tt=&gy=&hh=` | Save the square and gyro settings |

@@ -116,8 +116,10 @@ unsigned long lastStaCheck  = 0;
 char statusText[40] = "Ready";
 
 // ---------------- Servo settings (saved in flash, namespace "servo") ----------------
-int servoClosed = 135;              // deg: hopper closed (calibrated)
-int servoOpen   = 75;               // deg: hopper open, drops seeds (calibrated)
+// Hopper angles are LOCKED: calibrated for this dispenser mechanism and not changeable
+// from the controller. Change them only here (and re-test) if the mechanism is rebuilt.
+const int servoClosed = 135;        // deg: hopper closed
+const int servoOpen   = 75;         // deg: hopper open, drops seeds
 int servoSpeed  = 200;              // swing speed, deg/s (0 = full speed)
 unsigned long servoHold = 100;      // ms held open (calibrated)
 int servoSwings = 1;                // open/close cycles per dispense
@@ -257,6 +259,12 @@ pre{margin:0;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--mu)
 .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));z-index:7;transform:translateX(-50%);max-width:calc(100% - 28px);padding:10px 16px;border-radius:10px;background:var(--s3);border:1px solid var(--bd);font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s}
 .toast.show{opacity:1}
 .toast.ok{border-color:#1f6f3c}.toast.err{border-color:var(--dg)}.toast.warn{border-color:var(--wn)}
+.caution{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:12px;border-radius:10px;background:var(--wns);border:1px solid rgba(245,158,11,.35);font-size:13px;color:var(--tx)}
+.caution svg{flex:none;width:18px;height:18px;color:var(--wn);margin-top:1px}
+.caution b{color:var(--wn);font-weight:600}
+.ro{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px 14px}
+.lockd{display:inline-flex;align-items:center;gap:5px}
+.lockd svg{width:14px;height:14px}
 /* drive layout: phone portrait (default) */
 .drive{display:grid;gap:12px;margin-top:12px}
 .mid{display:contents}
@@ -359,31 +367,30 @@ body.t-drive #stCard{display:none}
 </div>
 </section>
 
-<!-- ===== DISPENSER CALIBRATION ===== -->
+<!-- ===== DISPENSER SETTINGS ===== -->
 <section id="p-disp" class="panel grid two" style="margin-top:12px" hidden>
 <div class="card">
-<div class="ct"><h2>Servo position</h2><span class="aux num"><span id="svav">-</span>&deg;</span></div>
-<input id="sva" type="range" min="0" max="180" value="90">
-<div class="inp" style="margin-top:12px">
-<button class="l svs" data-sv="-5">&minus;5</button><button class="l svs" data-sv="-1">&minus;1</button>
-<input id="svaN" type="number" inputmode="numeric" min="0" max="180" style="text-align:center">
-<button class="svs" data-sv="1">+1</button><button class="svs" data-sv="5">+5</button>
+<div class="ct"><h2>Hopper angles</h2><span class="aux lockd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Locked</span></div>
+<div class="cols">
+<div class="ro"><div class="kl">Closed</div><div class="kv num"><span id="svcV">-</span>&deg;</div></div>
+<div class="ro"><div class="kl">Open</div><div class="kv num"><span id="svoV">-</span>&deg;</div></div>
 </div>
-<div class="btns">
-<button id="svSetC" class="btn">Set as closed</button>
-<button id="svSetO" class="btn">Set as open</button>
+<div class="caution">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+<div><b>Calibrated for this hopper.</b> The open and closed angles are fixed in the firmware and can't be changed from the controller. A wrong angle can jam the hopper or spill seeds.</div>
 </div>
-<div class="hint">Move the arm live, then store the position as closed or open.</div>
 </div>
 <div class="card">
-<div class="ct"><h2>Dispense settings</h2><span class="aux" id="svDirty"></span></div>
+<div class="ct"><h2>Dispense timing</h2><span class="aux" id="svDirty"></span></div>
 <div class="cols">
-<div class="field"><div class="fl"><span>Closed angle</span></div><div class="inp"><input id="svc" type="number" inputmode="numeric" min="0" max="180"><span class="u">&deg;</span></div></div>
-<div class="field"><div class="fl"><span>Open angle</span></div><div class="inp"><input id="svo" type="number" inputmode="numeric" min="0" max="180"><span class="u">&deg;</span></div></div>
 <div class="field"><div class="fl"><span>Swing speed</span></div><div class="inp"><input id="svsp" type="number" inputmode="numeric" min="0" max="600" step="10"><span class="u">&deg;/s</span></div></div>
 <div class="field"><div class="fl"><span>Hold open</span></div><div class="inp"><input id="svh" type="number" inputmode="numeric" min="0" max="5000" step="50"><span class="u">ms</span></div></div>
 </div>
 <div class="field"><div class="fl"><span>Swings per dispense</span></div><div class="inp"><input id="svn" type="number" inputmode="numeric" min="1" max="20"></div></div>
+<div class="caution">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+<div>These settings change how many seeds drop. Press <b>Test</b> with seeds in the hopper before you press <b>Save</b>.</div>
+</div>
 <div class="btns">
 <button id="svTest" class="btn">Test</button>
 <button id="svSave" class="btn pri">Save</button>
@@ -572,46 +579,37 @@ function renderDisp(d){
   $('dBtn').disabled=d.svb||d.tlt;
 }
 
-// ---------- servo calibration ----------
-let svBusy=false,svPend=null;
-function svShow(a){$('sva').value=a;$('svaN').value=a;$('svav').textContent=a;}
-function svSend(a){                       // latest angle wins, one request in flight
-  svPend=a;if(svBusy)return;
-  svBusy=true;const v=svPend;svPend=null;
-  get('/servo/set?a='+v).then(d=>{if(!d.ok)toast(d.msg,'err');}).catch(()=>{})
-    .finally(()=>{svBusy=false;if(svPend!==null)svSend(svPend);});
-}
-function svGo(a){a=Math.min(180,Math.max(0,a|0));svShow(a);svSend(a);}
-$('sva').oninput=()=>svGo(+$('sva').value);
-$('svaN').onchange=()=>{const v=parseInt($('svaN').value,10);if(!isNaN(v))svGo(v);};
-document.querySelectorAll('.svs').forEach(b=>b.onclick=()=>svGo(+$('sva').value+(+b.dataset.sv)));
-$('svSetC').onclick=()=>{$('svc').value=$('sva').value;svDirty();toast('Closed = '+$('sva').value+'° - press Save to keep');};
-$('svSetO').onclick=()=>{$('svo').value=$('sva').value;svDirty();toast('Open = '+$('sva').value+'° - press Save to keep');};
+// ---------- dispense timing (hopper angles are locked in firmware) ----------
+const SVF=['svsp','svh','svn'];
 function svParams(){
-  const c=val('svc'),o=val('svo'),s=val('svsp'),h=val('svh'),n=val('svn');
-  if([c,o,s,h,n].some(isNaN)){toast('Angles 0-180, speed 0-600, hold 0-5000, swings 1-20','err');return null;}
-  return 'c='+c+'&o='+o+'&sp='+s+'&h='+h+'&n='+n;
+  const s=val('svsp'),h=val('svh'),n=val('svn');
+  if([s,h,n].some(isNaN)){toast('Speed 0-600, hold 0-5000, swings 1-20','err');return null;}
+  return 'sp='+s+'&h='+h+'&n='+n;
 }
 let svSaved=null;
+function svIsDirty(){return !!svSaved&&SVF.some((id,i)=>val(id)!==svSaved[i]);}
 function svDirty(){
-  if(!svSaved)return;
-  const d=['svc','svo','svsp','svh','svn'].some((id,i)=>val(id)!==svSaved[i]);
+  const d=svIsDirty();
   $('svDirty').textContent=d?'Unsaved changes':'';
   $('svDirty').style.color=d?'var(--wn)':'';
 }
-['svc','svo','svsp','svh','svn'].forEach(id=>$(id).addEventListener('input',svDirty));
+SVF.forEach(id=>$(id).addEventListener('input',svDirty));
 $('svTest').onclick=()=>{const p=svParams();if(p)act('/servo/test?'+p);};
-$('svSave').onclick=()=>{const p=svParams();if(p)act('/servo/save?'+p);};
+$('svSave').onclick=()=>{
+  const p=svParams();if(!p)return;
+  if(!confirm('Save new dispense timing?'+String.fromCharCode(10,10)+'This changes how many seeds drop on every dispense. Make sure you tested it first.'))return;
+  act('/servo/save?'+p);
+};
 function renderServo(d){
-  svSaved=[d.sc,d.so,d.ss,d.sh,d.sn];
-  if(!svLoaded){
-    $('svc').value=d.sc;$('svo').value=d.so;$('svsp').value=d.ss;$('svh').value=d.sh;$('svn').value=d.sn;
-    svShow(d.sv);svLoaded=true;
-  }else if(d.svb||(!svBusy&&svPend===null&&document.activeElement!==$('sva')&&document.activeElement!==$('svaN'))){
-    svShow(d.sv);                          // follow the real arm position
+  $('svcV').textContent=d.sc;$('svoV').textContent=d.so;
+  const prev=svSaved;
+  svSaved=[d.ss,d.sh,d.sn];
+  // first load, or the saved values changed while the fields were untouched: show the saved values
+  if(!svLoaded||(prev&&SVF.some((id,i)=>prev[i]!==svSaved[i])&&!SVF.some((id,i)=>val(id)!==prev[i]))){
+    $('svsp').value=d.ss;$('svh').value=d.sh;$('svn').value=d.sn;svLoaded=true;
   }
   svDirty();
-  ['svTest','svSave','svSetC','svSetO'].forEach(id=>$(id).disabled=d.svb);
+  ['svTest','svSave'].forEach(id=>$(id).disabled=d.svb||d.tlt);
 }
 
 // ---------- square + gyro calibration ----------
@@ -1381,59 +1379,44 @@ void handleJoy() {
 // ---------------- Servo handlers ----------------
 int argOr(const char* name, long def) { return server.hasArg(name) ? server.arg(name).toInt() : def; }
 
-// Reads c,o,sp,h,n (defaults = saved values). Sends 400 and returns false if out of range.
-bool readServoArgs(int& c, int& o, int& sp, unsigned long& h, int& n) {
-  c  = argOr("c",  servoClosed);
-  o  = argOr("o",  servoOpen);
+// Reads sp,h,n (defaults = saved values). Angles are locked and never read from requests.
+// Sends 400 and returns false if out of range.
+bool readServoArgs(int& sp, unsigned long& h, int& n) {
   sp = argOr("sp", servoSpeed);
   long hh = argOr("h", servoHold);
   n  = argOr("n",  servoSwings);
-  if (c < 0 || c > 180 || o < 0 || o > 180 || sp < 0 || sp > SERVO_MAX_SPD ||
-      hh < 0 || hh > 5000 || n < 1 || n > 20) {
-    sendResult(400, false, "Angles 0-180, speed 0-600, hold 0-5000, swings 1-20");
+  if (sp < 0 || sp > SERVO_MAX_SPD || hh < 0 || hh > 5000 || n < 1 || n > 20) {
+    sendResult(400, false, "Speed 0-600, hold 0-5000, swings 1-20");
     return false;
   }
   h = (unsigned long)hh;
   return true;
 }
 
-void handleServoSet() {             // live angle for calibration
-  lastClientMs = millis();
-  if (svPhase != SV_IDLE) { sendResult(409, false, "Dispensing - press STOP"); return; }
-  int a = argOr("a", -1);
-  if (a < 0 || a > 180) { sendResult(400, false, "Angle 0-180"); return; }
-  servoMoveTo(a, 0);
-  char b[24];
-  snprintf(b, sizeof(b), "Angle %d", a);
-  sendResult(200, true, b);
-}
-
 void handleServoTest() {            // one dispense with the values on screen (not saved)
   lastClientMs = millis();
+  if (rejectIfTilted()) return;
   if (svPhase != SV_IDLE) { sendResult(409, false, "Already dispensing"); return; }
-  int c, o, sp, n; unsigned long h;
-  if (!readServoArgs(c, o, sp, h, n)) return;
-  servoStartDispense(c, o, sp, h, n);
+  int sp, n; unsigned long h;
+  if (!readServoArgs(sp, h, n)) return;
+  servoStartDispense(servoClosed, servoOpen, sp, h, n);
   logEvent("Test dispense");
-  sendResult(200, true, "Dispensing...");
+  sendResult(200, true, "Test dispense");
 }
 
 void handleServoSave() {
   lastClientMs = millis();
   if (svPhase != SV_IDLE) { sendResult(409, false, "Dispensing - press STOP"); return; }
-  int c, o, sp, n; unsigned long h;
-  if (!readServoArgs(c, o, sp, h, n)) return;
-  servoClosed = c; servoOpen = o; servoSpeed = sp; servoHold = h; servoSwings = n;
+  int sp, n; unsigned long h;
+  if (!readServoArgs(sp, h, n)) return;
+  servoSpeed = sp; servoHold = h; servoSwings = n;
   prefs.begin("servo", false);
-  prefs.putInt("c", c);
-  prefs.putInt("o", o);
   prefs.putInt("sp", sp);
   prefs.putULong("h", h);
   prefs.putInt("n", n);
   prefs.end();
-  servoMoveTo(servoClosed, servoSpeed);
-  logEvent("Servo settings saved");
-  sendResult(200, true, "Servo saved - moved to closed");
+  logEvent("Dispense settings saved");
+  sendResult(200, true, "Dispense settings saved");
 }
 
 // ---------------- Dispense while driving (uses saved closed/open angles + hold) ----------------
@@ -1675,10 +1658,8 @@ void setup() {
   loadSettings();
   Serial.printf("Settings: forward %lu ms, turn %lu ms\n", forwardTime, turnTime);
 
-  // Servo: load saved angles and park at the closed position
+  // Servo: load saved timing (angles are locked constants) and park at the closed position
   prefs.begin("servo", false);
-  servoClosed = constrain(prefs.getInt("c", 135), 0, 180);
-  servoOpen   = constrain(prefs.getInt("o", 75), 0, 180);
   servoSpeed  = constrain(prefs.getInt("sp", 200), 0, SERVO_MAX_SPD);
   servoHold   = min((unsigned long)prefs.getULong("h", 100), 5000UL);
   servoSwings = constrain(prefs.getInt("n", 1), 1, 20);
@@ -1706,7 +1687,6 @@ void setup() {
   server.on("/stop",   handleStop);
   server.on("/joy",    handleJoy);
   server.on("/log",    handleLog);
-  server.on("/servo/set",  handleServoSet);
   server.on("/servo/test", handleServoTest);
   server.on("/servo/save", handleServoSave);
   server.on("/disp",       handleDispense);

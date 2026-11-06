@@ -37,12 +37,17 @@ Do these steps in order after the first upload. Every value is saved on the rove
 
 ## 5. Seed hopper (Dispenser tab)
 
-1. Drag the **servo position** slider until the hopper is fully closed. Press **Set as closed**.
-2. Move it until seeds fall freely. Press **Set as open**.
-3. Set **Swing speed** (°/s, 0 = full speed), **Hold open** (ms) and **Swings per dispense**.
-4. Press **Test** with some seeds in the hopper, adjust, then press **Save**.
+The hopper angles are **locked in the firmware** at closed **135°** and open **75°**. They're calibrated for this dispenser mechanism, and the controller can't change them. A wrong angle can jam the hopper or spill seeds.
 
-Firmware defaults: closed 135°, open 75°, 200 °/s, 100 ms hold, 1 swing.
+If the mechanism is ever rebuilt, change `servoClosed` and `servoOpen` near the top of `C3_Seed_Rover.ino`, test carefully, and upload again.
+
+On the Dispenser tab you can tune the timing only:
+
+1. Set **Swing speed** (°/s, 0 = full speed), **Hold open** (ms) and **Swings per dispense**.
+2. Press **Test** with some seeds in the hopper. Test uses the values on screen without saving them.
+3. Press **Save** and confirm. The Drive tab uses the new values straight away.
+
+Firmware defaults: 200 °/s, 100 ms hold, 1 swing.
 
 ## 6. Continuous dispense
 
