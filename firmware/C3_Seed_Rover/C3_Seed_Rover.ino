@@ -354,7 +354,7 @@ body.t-drive #stCard{display:none}
 <div class="field"><div class="fl"><span>Interval</span></div>
 <div class="inp"><input id="di" type="number" inputmode="numeric" min="100" max="10000" step="100"><span class="u">ms</span></div></div>
 </div>
-<div class="hint">Saved on this phone. Interval is used by continuous dispense.</div>
+<div class="hint">Speed and cycles follow the saved Dispenser settings (change them here for this session only). Interval is saved on this phone.</div>
 </details>
 </div>
 </section>
@@ -554,11 +554,18 @@ function sendCont(on){
 $('dBtn').onclick=()=>{const p=dOpts();if(p)act('/disp?'+p);};
 $('cBtn').onclick=()=>sendCont(!contOn);
 ['dsp','dn','di'].forEach(id=>$(id).onchange=()=>{if(contOn)sendCont(true);else dOpts();});
+let dSS=null,dSN=null;                  // rover's saved swing speed / swings last applied here
 function renderDisp(d){
-  if(!dLoaded){
+  if(!dLoaded){                          // speed + cycles come from the rover; interval from this phone
     let o=null;try{o=JSON.parse(store.get('dopts'));}catch(_){}
-    $('dsp').value=o?o.s:d.ss;$('dn').value=o?o.n:d.sn;$('di').value=o?o.i:1000;
+    $('di').value=(o&&o.i>=100&&o.i<=10000)?o.i:1000;
     dLoaded=true;
+  }
+  if(d.ss!==dSS||d.sn!==dSN){            // first load, or Save on the Dispenser tab
+    const first=dSS===null;
+    dSS=d.ss;dSN=d.sn;
+    $('dsp').value=d.ss;$('dn').value=d.sn;
+    if(!first&&contOn&&d.co)sendCont(true);   // running continuous dispense picks up the new values
   }
   if(d.co!==contOn)showCont(d.co);       // rover may switch it off (STOP, tilt, link loss)
   $('svState').textContent=d.svb?'Dispensing':(d.co?'Continuous':'Idle');
