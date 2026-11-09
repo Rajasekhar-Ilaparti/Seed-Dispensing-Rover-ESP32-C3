@@ -9,7 +9,10 @@ The **System** tab shows the *Last reset* reason and an event log. Check it firs
 | Phone can't open 192.168.4.1 | Another device (often the PC) is on C3-ROVER, which allows only one | Disconnect the other device |
 | Page shows **Offline** | Out of range, or the phone left the rover's Wi-Fi | Rejoin C3-ROVER. The page reconnects by itself |
 | Old page appears after an update | Browser cache | Refresh the page |
-| Wheels spin in the air but hum or crawl on the ground | Stiff gearbox, or a sudden power step tripping the DRV8833 current limit | Turn each wheel by hand: all should feel equally free. Open and re-seat a stiff gearbox. Keep soft starts (the default) |
+| Wheels spin in the air but hum or crawl on the ground | Stiff gearbox, `JOY_MIN_PWM` too low, or (on a DRV8833) a sudden power step tripping its current limit | Turn each wheel by hand: all should feel equally free. Open and re-seat a stiff gearbox. Raise `JOY_MIN_PWM` by 5 |
+| A small joystick push spins the wheels fast | `JOY_MIN_PWM` too high for the driver | Lower `JOY_MIN_PWM` (50 suits the TC1508A; the DRV8833 needed about 110) |
+| Motor driver gets very hot | TC1508A run above its rating or at high PWM | Keep `JOY_MAX_PWM` at 100 or lower, add a heatsink, or feed the driver from a 6 V buck |
+| Forward pivots the rover, or left/right drive it forward/back | Driver channels on the opposite sides | Change `SIDES_SWAPPED` (see calibration step 1) |
 | One side stalls on pivot turns | Fast-decay PWM or a weak supply | Keep `SLOW_DECAY true` and `PWM_FREQ 1000` |
 | Turns are not 90° | Coasting, or the gyro direction is not learned yet | Run **Test right turn**, then adjust **Stop early** |
 | Heading drifts while standing still | Moved during boot calibration | Press **Recalibrate gyro** with the rover still |

@@ -19,10 +19,11 @@ An **MPU6050** gyro gives accurate 90° turns, keeps the rover driving straight,
 
 **Driving**
 - Smooth proportional joystick (arcade mixing) over a WebSocket, about 10 commands per second
-- Soft starts (gentle build-up from a stop, so the driver never cuts out), a braked pass through zero when reversing
+- Soft starts (gentle build-up from a stop), a braked pass through zero when reversing
 - Speed limit slider (20–100 %), remembered on the phone
 - Gyro "hold straight": corrects drift when the stick is pushed straight ahead or back
-- Slow-decay PWM at 1 kHz on the DRV8833 for full torque from BO motors on pivot turns
+- Slow-decay PWM at 1 kHz for full torque from BO motors on pivot turns
+- Drive power fixed in the firmware (PWM 50–100) to keep the TC1508A driver cool
 
 **Seed dispensing**
 - **Dispense once**, or **continuous dispense** at a set interval while driving
@@ -75,32 +76,35 @@ Seed-Dispensing-Rover/
 | Part | Notes |
 |---|---|
 | ESP32-C3 Super Mini | Main controller, Wi-Fi access point |
-| DRV8833 dual motor driver | One channel per side |
+| TC1508A dual motor driver module | One channel per side. A DRV8833 also works (see wiring) |
 | 4 × BO gear motors | Two in parallel per side (skid steering) |
 | MPU6050 (GY-521) | Gyro and accelerometer over I2C |
 | Micro servo (SG90 / MG90S) | Opens and closes the seed hopper |
 | 2S Li-ion pack + 2S BMS | 7.4 V nominal, 8.4 V full. Use a BMS rated for the motors' starting current |
 | Buck converter set to 5.0 V | Powers the ESP32-C3 and the servo |
 | Power switch, optional 3–5 A fuse | |
-| Capacitors | 470–1000 µF at the DRV8833, 470 µF at the servo |
+| Capacitors | 470–1000 µF at the motor driver, 470 µF at the servo |
+| Small heatsink on the TC1508A | Optional; it runs hot |
 
 ## 🔌 Pin configuration
 
 ```text
-GPIO 3   -> DRV8833 AIN1   (left motors)
-GPIO 4   -> DRV8833 AIN2   (left motors)
-GPIO 5   -> DRV8833 BIN1   (right motors)
-GPIO 6   -> DRV8833 BIN2   (right motors)
-GPIO 7   -> DRV8833 STBY / EEP / nSLEEP
+GPIO 3   -> TC1508A INT1   (MOTOR-A: right motors)
+GPIO 4   -> TC1508A INT2   (MOTOR-A: right motors)
+GPIO 5   -> TC1508A INT3   (MOTOR-B: left motors)
+GPIO 6   -> TC1508A INT4   (MOTOR-B: left motors)
+GPIO 7   -> not connected  (STBY when using a DRV8833)
 GPIO 10  -> Servo signal
 GPIO 20  -> MPU6050 SDA
 GPIO 21  -> MPU6050 SCL
 3V3      -> MPU6050 VCC
 5V       <- Buck converter 5.0 V
-GND      -> common ground (battery, DRV8833, buck, servo, MPU6050)
+GND      -> common ground (battery, TC1508A, buck, servo, MPU6050)
 ```
 
 Full wiring, power distribution and capacitor placement: **[hardware/wiring.md](hardware/wiring.md)**
+
+> ⚠️ The TC1508A chip is rated 7.2 V maximum and this rover feeds it straight from a 2S pack (up to 8.4 V). See the warning in the wiring guide.
 
 ## 💻 Building the firmware
 
@@ -153,15 +157,15 @@ Phone browser ──Wi-Fi AP──> ESP32-C3
    │  WebSocket :81   joystick "x,y,speed" (10 Hz) + status requests
    ▼
 ESP32-C3 main loop (non-blocking, millis() state machines)
-   ├── joystick  → arcade mix → ramp → DRV8833 (slow-decay PWM, 1 kHz)
+   ├── joystick  → arcade mix → ramp → TC1508A (slow-decay PWM, 1 kHz)
    ├── MPU6050   → 200 Hz gyro Z integration (heading) + accel tilt
    ├── sequences → test turn / square path (time- or gyro-based)
    ├── servo     → speed-limited open → hold → close cycles (50 Hz LEDC)
    └── safety    → link timeouts, tilt latch, STOP
 ```
 
-- **Motor drive.** Slow decay holds one DRV8833 input high and drives the other with an inverted PWM. Between pulses the motor brakes instead of coasting, which keeps the current up and gives BO motors far more torque at the same duty cycle. With fast decay, one side often stalled on pivot turns.
-- **Joystick.** Throttle and steering are mixed into left/right demand. The speed slider spans the usable range: 20 % = the minimum drive power (default PWM 110, adjustable on the Calibration tab), 100 % = PWM 200. Starts are soft: a side leaving standstill begins at PWM 60 and speeds up at 300 PWM/s. A sudden large step into stalled motors trips the DRV8833's over-current protection, which makes the motors hum without moving. Slowing down and stopping use 900 PWM/s. While the stick is held, the page sends only joystick packets.
+- **Motor drive.** Slow decay holds one driver input high and drives the other with an inverted PWM. Between pulses the motor brakes instead of coasting, which keeps the current up and gives BO motors far more torque at the same duty cycle. With fast decay, one side often stalled on pivot turns.
+- **Joystick.** Throttle and steering are mixed into left/right demand. The speed slider spans the usable range: 20 % = PWM 50 (`JOY_MIN_PWM`, a small joystick push crawls), 100 % = PWM 100 (`JOY_MAX_PWM`, kept low so the TC1508A doesn't overheat). Both are fixed in the firmware. Starts are soft: a side leaving standstill begins at PWM 40 and speeds up at 300 PWM/s. Slowing down and stopping use 900 PWM/s. While the stick is held, the page sends only joystick packets.
 - **Gyro.** The MPU6050 is read with raw I2C registers (±500 °/s, 44 Hz low-pass), with no external library. Gyro drift is measured at boot. A turn ends at *turn angle − stop early*, and the real angle is reported once the rover stops coasting. Hold-straight is a proportional correction (±40 PWM maximum).
 - **Status.** The page asks for status over the existing WebSocket. HTTP polling is only a fallback.
 
@@ -181,7 +185,6 @@ ESP32-C3 main loop (non-blocking, millis() state machines)
 | `/square` | Run the square path |
 | `/save?fwd=&turn=&ta=&tt=&gy=&hh=` | Save the square and gyro settings |
 | `/mpu/cal` | Recalibrate the gyro (rover must be still) |
-| `/drive/save?jm=` | Drive power: minimum PWM while moving (60-180) |
 | `/log` | Recent event log (text) |
 
 WebSocket on port **81**: send `x,y,speed` to drive, `0,0` to release, `s` for status.
@@ -192,6 +195,7 @@ See **[docs/troubleshooting.md](docs/troubleshooting.md)**. The most common caus
 
 - **Rover restarts or Wi-Fi drops when the motors start:** the battery is low, or the BMS trips on the starting current. Check *Last reset* on the System tab.
 - **The page won't load on the phone:** another device (often the PC) is connected. The rover allows one device at a time.
+- **Motor driver very hot:** lower `JOY_MAX_PWM`, add a heatsink, or power the TC1508A from a 6 V buck.
 
 ## 🚀 Possible improvements
 

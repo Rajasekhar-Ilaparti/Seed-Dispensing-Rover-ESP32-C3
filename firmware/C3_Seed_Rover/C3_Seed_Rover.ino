@@ -1,5 +1,5 @@
 /*
-  Seed Dispensing Rover - ESP32-C3 Super Mini + DRV8833 + MPU6050 + servo
+  Seed Dispensing Rover - ESP32-C3 Super Mini + TC1508A motor driver + MPU6050 + servo
   Wi-Fi controller hosted on the rover: joystick driving, seed dispensing
   (single / continuous), servo + square-path + gyro calibration, OTA updates.
   Everything is non-blocking (millis() state machines).
@@ -10,12 +10,14 @@
   OTA    : host c3-rover, password 12345678
 
   Wiring:
-    GPIO3  -> DRV8833 AIN1   GPIO4 -> AIN2   (left motor pair,  AO1/AO2)
-    GPIO5  -> DRV8833 BIN1   GPIO6 -> BIN2   (right motor pair, BO1/BO2)
-    GPIO7  -> DRV8833 STBY (EEP / nSLEEP)
+    GPIO3  -> TC1508A INT1   GPIO4 -> INT2   (MOTOR-A: right motor pair)
+    GPIO5  -> TC1508A INT3   GPIO6 -> INT4   (MOTOR-B: left motor pair)
+    GPIO7  -> not connected on the TC1508A (STBY on a DRV8833)
     GPIO10 -> servo signal (servo powered from the 5 V buck)
     GPIO20 -> MPU6050 SDA    GPIO21 -> MPU6050 SCL   (MPU6050 VCC -> 3V3)
-    GND common to battery, DRV8833, buck, servo and MPU6050
+    GND common to battery, TC1508A, buck, servo and MPU6050
+    Side/direction mapping for this wiring: SIDES_SWAPPED true, RIGHT_REVERSED false, JOY_SWAP_LR false.
+    On the original DRV8833 wiring (AO = left, BO = right) use false / true / true.
 */
 
 #include <WiFi.h>
@@ -40,7 +42,8 @@
 #define DRIVE_SPEED 150     // forward / backward
 #define TURN_SPEED  170     // pivot left / right
 
-#define RIGHT_REVERSED true // right side polarity reversed in software
+#define SIDES_SWAPPED  true // TC1508A wiring: GPIO3/4 (MOTOR-A) drive the RIGHT wheels, GPIO5/6 (MOTOR-B) the LEFT
+#define RIGHT_REVERSED false // right side polarity reversed in software (true on the old DRV8833 wiring)
 #define SLOW_DECAY     true // slow decay: fixes one side stalling on pivot turns
 
 // ---------------- Timing / limits ----------------
@@ -48,11 +51,11 @@
 #define LINK_TIMEOUT  2500  // ms without any browser request while moving -> stop
 #define JOY_TIMEOUT   500   // ms without a joystick packet while driving -> stop
 #define JOY_DEADZONE  10    // joystick range is -100..100
-#define JOY_SWAP_LR   true  // swap joystick left/right
-#define JOY_MAX_PWM   200   // PWM at 100% speed (capped below 255 to protect the DRV8833)
-#define JOY_MIN_DEF   110   // default: lowest PWM that keeps the rover rolling on the ground
-#define JOY_START_PWM 60    // soft start: a side leaving standstill begins here...
-#define JOY_ACCEL     300   // ...and speeds up at this many PWM/s (a sudden full step trips the DRV8833 current limit)
+#define JOY_SWAP_LR   false // swap joystick left/right (true on the old DRV8833 wiring)
+#define JOY_MAX_PWM   100   // PWM at 100% speed (TC1508A: kept low so the driver stays cool)
+#define JOY_MIN_PWM   50    // lowest PWM while moving = small joystick push / slider at 20 %
+#define JOY_START_PWM 40    // soft start: a side leaving standstill begins here...
+#define JOY_ACCEL     300   // ...and speeds up at this many PWM/s (gentle on the driver and gearboxes)
 #define JOY_RAMP      900   // PWM change per second (0 -> 150 in ~0.17 s) = smooth start/stop
 
 // ---------------- MPU6050 (gyro turns, hold straight, tilt safety) ----------------
@@ -92,7 +95,6 @@ bool  useGyro   = true;             // gyro decides when a turn is done (timed i
 float turnAngle = 90;               // deg per test turn / square corner
 float turnTrim  = 8;                // deg: stop this much early to allow for coasting
 bool  holdOn    = true;             // use the gyro to drive straight
-int   joyMinPwm = JOY_MIN_DEF;      // drive power: minimum PWM (Calibration tab)
 
 // ---------------- State machine ----------------
 enum Mode  { MODE_IDLE, MODE_TEST, MODE_SQUARE, MODE_JOY };
@@ -146,8 +148,7 @@ unsigned long dispCount = 0;        // completed dispense cycles since power-on
 // =====================================================================
 //  Web page
 // =====================================================================
-const char INDEX_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
+const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -434,13 +435,6 @@ body.t-drive #stCard{display:none}
 <button id="save" class="btn pri lock">Save settings</button>
 </div>
 </div>
-<div class="card span">
-<div class="ct"><h2>Drive power</h2><span class="aux" id="dpDirty"></span></div>
-<div class="field"><div class="fl"><span>Minimum power</span><span>60-180</span></div>
-<div class="inp"><button class="l dps" data-t="jm" data-d="-5">&minus;5</button><input id="jm" type="number" inputmode="numeric" min="60" max="180" step="5" style="text-align:center"><button class="dps" data-t="jm" data-d="5">+5</button></div></div>
-<div class="hint">The lowest power the rover drives at while moving (speed slider at 20 %). Starts are always soft: each side builds up gently from a stop, so the motor driver doesn't cut out. Saving applies it straight away.</div>
-<div class="btns"><button id="dpDef" class="btn">Default (110)</button><button id="dpSave" class="btn pri">Save drive power</button></div>
-</div>
 </section>
 
 <!-- ===== SYSTEM ===== -->
@@ -524,7 +518,7 @@ function onStatus(d){
   $('kTlBox').classList.toggle('bad',!!d.tlt);
   $('kDc').textContent=d.dc;
   $('kMo').textContent=pct(d.ml)+' / '+pct(d.mr);
-  renderDisp(d);renderServo(d);renderCal(d);renderDrive(d);renderSys(d);
+  renderDisp(d);renderServo(d);renderCal(d);renderSys(d);
 }
 let inflight=false;
 function httpPoll(){
@@ -673,28 +667,6 @@ $('square').onclick=()=>{
 $('mcal').onclick=()=>{toast('Calibrating - keep the rover still');act('/mpu/cal');};
 
 // ---------- drive power ----------
-let dpLoaded=false,dpSaved=null;
-function dpDirty(){
-  const d=dpSaved!==null&&val('jm')!==dpSaved;
-  $('dpDirty').textContent=d?'Unsaved changes':'';$('dpDirty').style.color=d?'var(--wn)':'';
-}
-$('jm').addEventListener('input',dpDirty);
-document.querySelectorAll('.dps').forEach(b=>b.onclick=()=>{
-  const e=$(b.dataset.t);
-  e.value=Math.min(+e.max,Math.max(+e.min,(parseInt(e.value,10)||0)+(+b.dataset.d)));dpDirty();
-});
-$('dpDef').onclick=()=>{$('jm').value=110;dpDirty();};
-$('dpSave').onclick=()=>{
-  const m=val('jm');
-  if(isNaN(m)){toast('Minimum power 60-180','err');return;}
-  act('/drive/save?jm='+m);
-};
-function renderDrive(d){
-  if(d.jm===undefined)return;
-  dpSaved=d.jm;
-  if(!dpLoaded){$('jm').value=d.jm;dpLoaded=true;}
-  dpDirty();
-}
 
 // ---------- system ----------
 function renderSys(d){
@@ -830,8 +802,17 @@ void driveChannel(uint8_t in1, uint8_t in2, int speed) {
 }
 
 int pwmL = 0, pwmR = 0;             // last applied per side (for the dashboard)
-void setLeft(int speed)  { pwmL = constrain(speed, -255, 255); driveChannel(AIN1, AIN2, speed); }
-void setRight(int speed) { pwmR = constrain(speed, -255, 255); driveChannel(BIN1, BIN2, RIGHT_REVERSED ? -speed : speed); }
+void setLeft(int speed) {
+  pwmL = constrain(speed, -255, 255);
+  if (SIDES_SWAPPED) driveChannel(BIN1, BIN2, speed);
+  else               driveChannel(AIN1, AIN2, speed);
+}
+void setRight(int speed) {
+  pwmR = constrain(speed, -255, 255);
+  int v = RIGHT_REVERSED ? -speed : speed;
+  if (SIDES_SWAPPED) driveChannel(AIN1, AIN2, v);
+  else               driveChannel(BIN1, BIN2, v);
+}
 
 void stopMotors()  { setLeft(0);             setRight(0); }
 void forward()     { setLeft(DRIVE_SPEED);   setRight(DRIVE_SPEED); }
@@ -948,10 +929,10 @@ void stopSequence(const char* reason) {
 }
 
 // ---------------- Joystick (proportional + ramped) ----------------
-// Demand -1..1 -> PWM. Anything non-zero starts at joyMinPwm so the wheels actually move.
+// Demand -1..1 -> PWM. Anything non-zero starts at JOY_MIN_PWM so the wheels actually move.
 int demandToPwm(float v, int maxPwm) {
   if (fabsf(v) < 0.05f) return 0;
-  int p = joyMinPwm + (int)((maxPwm - joyMinPwm) * fabsf(v));
+  int p = JOY_MIN_PWM + (int)((maxPwm - JOY_MIN_PWM) * fabsf(v));
   return v > 0 ? p : -p;
 }
 
@@ -964,7 +945,7 @@ void joySetTarget(int x, int y, int speedPct) {
   float m = max(fabsf(l), fabsf(r));
   if (m > 1.0f) { l /= m; r /= m; }
   // Speed slider 20..100 % spans the usable range: 20 % = slowest crawl, 100 % = JOY_MAX_PWM
-  int maxPwm = joyMinPwm + (JOY_MAX_PWM - joyMinPwm) * (constrain(speedPct, 20, 100) - 20) / 80;
+  int maxPwm = JOY_MIN_PWM + (JOY_MAX_PWM - JOY_MIN_PWM) * (constrain(speedPct, 20, 100) - 20) / 80;
   joyTgtL = demandToPwm(l, maxPwm);
   joyTgtR = demandToPwm(r, maxPwm);
 }
@@ -972,14 +953,14 @@ void joySetTarget(int x, int y, int speedPct) {
 // One ramp step toward the target (dt in seconds).
 //  - Starting from standstill: begin at JOY_START_PWM and speed up gently at JOY_ACCEL, so the
 //    stalled motors never get a sudden large step (that trips the driver's over-current limit).
-//  - Slowing down / stopping: JOY_RAMP; below joyMinPwm it drops straight to 0 (brake) so the
+//  - Slowing down / stopping: JOY_RAMP; below JOY_MIN_PWM it drops straight to 0 (brake) so the
 //    motors don't sit humming.
 //  - Reversing: slow to 0 first, then soft-start the other way.
 float rampSide(float cur, int tgt, float dt) {
   float down = JOY_RAMP * dt;
   if (tgt == 0 || (cur != 0 && (cur > 0) != (tgt > 0))) {     // stop, or reverse via 0
     float n = cur > 0 ? max(cur - down, 0.0f) : min(cur + down, 0.0f);
-    return fabsf(n) < joyMinPwm ? 0 : n;
+    return fabsf(n) < JOY_MIN_PWM ? 0 : n;
   }
   float a = fabsf(cur), t = abs(tgt), sgn = tgt > 0 ? 1.0f : -1.0f;
   if (a < t) a = (a == 0) ? min((float)JOY_START_PWM, t) : min(a + JOY_ACCEL * dt, t);
@@ -1347,7 +1328,7 @@ void buildStatus(char* buf, size_t n) {
            "{\"status\":\"%s\",\"busy\":%s,\"md\":%d,\"fwd\":%lu,\"turn\":%lu,\"up\":%lu,\"rst\":\"%s\",\"heap\":%lu,"
            "\"sv\":%d,\"svb\":%s,\"sc\":%d,\"so\":%d,\"ss\":%d,\"sh\":%lu,\"sn\":%d,\"co\":%s,\"dc\":%lu,"
            "\"ml\":%d,\"mr\":%d,"
-           "\"mpu\":%s,\"hd\":%.1f,\"tl\":%.1f,\"tlt\":%s,\"gy\":%s,\"ta\":%.0f,\"tt\":%.0f,\"hh\":%s,\"sk\":%s,\"jm\":%d}",
+           "\"mpu\":%s,\"hd\":%.1f,\"tl\":%.1f,\"tlt\":%s,\"gy\":%s,\"ta\":%.0f,\"tt\":%.0f,\"hh\":%s,\"sk\":%s}",
            statusText, mode != MODE_IDLE ? "true" : "false", (int)mode, forwardTime, turnTime,
            millis() / 1000, resetReason, (unsigned long)ESP.getFreeHeap(),
            (int)(servoPos + 0.5f), svPhase != SV_IDLE ? "true" : "false",
@@ -1355,7 +1336,7 @@ void buildStatus(char* buf, size_t n) {
            pwmL, pwmR,
            mpuOk ? "true" : "false", angleDiff(heading(), 0), tiltDeg, tiltLatched ? "true" : "false",
            useGyro ? "true" : "false", turnAngle, turnTrim, holdOn ? "true" : "false",
-           signKnown ? "true" : "false", joyMinPwm);
+           signKnown ? "true" : "false");
 }
 
 void handleStatus() {
@@ -1628,25 +1609,6 @@ void handleSave() {
   sendResult(200, true, buf);
 }
 
-// Drive power: minimum PWM while moving. Applied immediately (also while driving) and saved.
-void handleDriveSave() {
-  lastClientMs = millis();
-  long jm = argOr("jm", joyMinPwm);
-  if (jm < 60 || jm > 180) {
-    sendResult(400, false, "Minimum power 60-180");
-    return;
-  }
-  joyMinPwm = jm;
-  prefs.begin("rover", false);
-  prefs.putInt("jm", joyMinPwm);
-  prefs.remove("jk");                     // old start-kick setting (no longer used)
-  prefs.end();
-  char b[40];
-  snprintf(b, sizeof(b), "Drive power saved: min %d", joyMinPwm);
-  logEvent(b);
-  sendResult(200, true, b);
-}
-
 // Re-measure gyro drift + level (rover must be still). Also retries a missing MPU.
 void handleMpuCal() {
   lastClientMs = millis();
@@ -1678,7 +1640,7 @@ void loadSettings() {
   turnTrim  = constrain(prefs.getFloat("tt", 8), 0.0f, 45.0f);
   useGyro   = prefs.getBool("gy", true);
   holdOn    = prefs.getBool("hh", true);
-  joyMinPwm  = constrain(prefs.getInt("jm", JOY_MIN_DEF), 60, 180);
+  for (const char* k : {"jp", "jx", "jm", "jk"}) if (prefs.isKey(k)) prefs.remove(k);   // old drive-power settings (now fixed)
   signKnown = prefs.getBool("sk", false);
   yawSign   = prefs.getChar("ys", -1) > 0 ? 1 : -1;
   prefs.end();
@@ -1755,7 +1717,6 @@ void setup() {
   server.on("/square", handleSquare);
   server.on("/save",   handleSave);
   server.on("/mpu/cal", handleMpuCal);
-  server.on("/drive/save", handleDriveSave);
   server.onNotFound(handleNotFound);
   server.begin();
 

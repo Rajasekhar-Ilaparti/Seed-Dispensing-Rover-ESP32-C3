@@ -6,16 +6,24 @@ Do these steps in order after the first upload. Every value is saved on the rove
 
 1. Lift the rover so the wheels are off the ground.
 2. On the **Drive** tab, push the joystick gently forward. Both sides should spin forward.
-3. If one side spins backwards, swap that motor pair's wires, or change `RIGHT_REVERSED` in the firmware.
-4. If left and right steering are swapped, change `JOY_SWAP_LR`.
+3. If one side spins backwards, swap that motor pair's wires.
+4. If forward makes the rover pivot, or left/right push it forward/back, the driver's channels are on the other sides: change `SIDES_SWAPPED` (and `RIGHT_REVERSED` if one side then runs backwards).
+5. If only the joystick's left and right are swapped, change `JOY_SWAP_LR`.
+6. Then press **Test right turn** on the **Calibration** tab: the rover must pivot **right**. If it pivots left, the sides are mirrored; change `SIDES_SWAPPED` and `JOY_SWAP_LR` together.
 
 ## 2. Drive power (low-speed driving)
 
-1. On the **Drive** tab, set the speed slider to **20 %** and drive forward on the floor.
-2. If the rover barely moves, open the **Calibration** tab. Raise **Minimum power** by +5 and press **Save drive power**. It applies straight away, so test again.
-3. Repeat until it rolls smoothly at 20 %. Default: 110.
+Drive power is fixed in the firmware, tuned on the floor for the TC1508A:
 
-Starts are always soft (from PWM 60, building up at 300 PWM/s). If a side still won't start on the ground but spins in the air, check that its gearbox turns freely by hand. A stiff gearbox is enough to stop it.
+| Define | Value | Meaning |
+|---|---|---|
+| `JOY_MIN_PWM` | 50 | Small joystick push, and the speed slider at 20 % |
+| `JOY_MAX_PWM` | 100 | Full speed. Higher runs the TC1508A very hot |
+| `JOY_START_PWM` | 40 | Where a soft start begins |
+
+To change them, edit the values near the top of `C3_Seed_Rover.ino` and upload again. If a small push still jumps too fast, lower `JOY_MIN_PWM`. If the rover won't roll at 20 %, raise it by 5.
+
+If a side won't start on the ground but spins in the air, check that its gearbox turns freely by hand. A stiff gearbox is enough to stop it.
 
 ## 2b. Gyro
 
