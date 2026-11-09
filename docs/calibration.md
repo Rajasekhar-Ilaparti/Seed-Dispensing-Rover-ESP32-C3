@@ -9,7 +9,17 @@ Do these steps in order after the first upload. Every value is saved on the rove
 3. If one side spins backwards, swap that motor pair's wires, or change `RIGHT_REVERSED` in the firmware.
 4. If left and right steering are swapped, change `JOY_SWAP_LR`.
 
-## 2. Gyro
+## 2. Drive power (low-speed driving)
+
+Four skid-steer wheels on the ground need more power to start than wheels spinning in the air.
+
+1. On the **Drive** tab, set the speed slider to **20 %** and drive forward on the floor.
+2. If the rover barely moves, open the **Calibration** tab. Raise **Minimum power** by +5 and press **Save drive power**. It applies straight away, so test again.
+3. Repeat until it rolls smoothly at 20 %. Lower **Start kick** if starts are jerky, or raise it if a side won't get moving from a stop.
+
+Defaults: minimum 110, kick 170.
+
+## 2b. Gyro
 
 1. Switch on with the rover sitting still and level.
 2. On the **Calibration** tab, the gyro card should show **Online**.

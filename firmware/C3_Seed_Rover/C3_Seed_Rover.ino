@@ -50,8 +50,8 @@
 #define JOY_DEADZONE  10    // joystick range is -100..100
 #define JOY_SWAP_LR   true  // swap joystick left/right
 #define JOY_MAX_PWM   200   // PWM at 100% speed (capped below 255 to protect the DRV8833)
-#define JOY_MIN_PWM   90    // lowest PWM that keeps the rover rolling on the ground
-#define JOY_KICK_PWM  150   // short burst when a side starts from standstill (breaks static friction)
+#define JOY_MIN_DEF   110   // default: lowest PWM that keeps the rover rolling on the ground
+#define JOY_KICK_DEF  170   // default: short burst when a side starts from standstill (0 = off)
 #define JOY_KICK_MS   150   // length of that burst
 #define JOY_RAMP      900   // PWM change per second (0 -> 150 in ~0.17 s) = smooth start/stop
 
@@ -92,6 +92,8 @@ bool  useGyro   = true;             // gyro decides when a turn is done (timed i
 float turnAngle = 90;               // deg per test turn / square corner
 float turnTrim  = 8;                // deg: stop this much early to allow for coasting
 bool  holdOn    = true;             // use the gyro to drive straight
+int   joyMinPwm = JOY_MIN_DEF;      // drive power: minimum PWM (Calibration tab)
+int   joyKickPwm = JOY_KICK_DEF;    // drive power: start kick PWM (Calibration tab)
 
 // ---------------- State machine ----------------
 enum Mode  { MODE_IDLE, MODE_TEST, MODE_SQUARE, MODE_JOY };
@@ -225,7 +227,8 @@ main.wrap{padding-top:14px}
 .inp button{height:100%;min-width:48px;border:0;border-left:1px solid var(--bd);background:var(--s2);color:var(--tx);font:inherit;font-size:14px}
 .inp button.l{border-left:0;border-right:1px solid var(--bd)}
 .inp button:active{background:var(--s3)}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.fl{gap:8px}.fl span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin:0}
 input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--s3)}
 input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--s3)}
@@ -432,6 +435,17 @@ body.t-drive #stCard{display:none}
 <button id="save" class="btn pri lock">Save settings</button>
 </div>
 </div>
+<div class="card span">
+<div class="ct"><h2>Drive power</h2><span class="aux" id="dpDirty"></span></div>
+<div class="cols">
+<div class="field"><div class="fl"><span>Minimum power</span><span>60-180</span></div>
+<div class="inp"><button class="l dps" data-t="jm" data-d="-5">&minus;5</button><input id="jm" type="number" inputmode="numeric" min="60" max="180" step="5" style="text-align:center"><button class="dps" data-t="jm" data-d="5">+5</button></div></div>
+<div class="field"><div class="fl"><span>Start kick</span><span>0 = off</span></div>
+<div class="inp"><button class="l dps" data-t="jk" data-d="-10">&minus;10</button><input id="jk" type="number" inputmode="numeric" min="0" max="255" step="10" style="text-align:center"><button class="dps" data-t="jk" data-d="10">+10</button></div></div>
+</div>
+<div class="hint">Minimum power is what the rover drives at with the speed slider at 20 %. Raise it until the rover rolls smoothly at low speed. The kick is a short burst that gets each side moving from a stop. Saving applies it straight away.</div>
+<div class="btns"><button id="dpDef" class="btn">Defaults (110 / 170)</button><button id="dpSave" class="btn pri">Save drive power</button></div>
+</div>
 </section>
 
 <!-- ===== SYSTEM ===== -->
@@ -515,7 +529,7 @@ function onStatus(d){
   $('kTlBox').classList.toggle('bad',!!d.tlt);
   $('kDc').textContent=d.dc;
   $('kMo').textContent=pct(d.ml)+' / '+pct(d.mr);
-  renderDisp(d);renderServo(d);renderCal(d);renderSys(d);
+  renderDisp(d);renderServo(d);renderCal(d);renderDrive(d);renderSys(d);
 }
 let inflight=false;
 function httpPoll(){
@@ -662,6 +676,30 @@ $('square').onclick=()=>{
   act('/square');
 };
 $('mcal').onclick=()=>{toast('Calibrating - keep the rover still');act('/mpu/cal');};
+
+// ---------- drive power ----------
+let dpLoaded=false,dpSaved=null;
+function dpDirty(){
+  const d=!!dpSaved&&(val('jm')!==dpSaved[0]||val('jk')!==dpSaved[1]);
+  $('dpDirty').textContent=d?'Unsaved changes':'';$('dpDirty').style.color=d?'var(--wn)':'';
+}
+['jm','jk'].forEach(id=>$(id).addEventListener('input',dpDirty));
+document.querySelectorAll('.dps').forEach(b=>b.onclick=()=>{
+  const e=$(b.dataset.t);
+  e.value=Math.min(+e.max,Math.max(+e.min,(parseInt(e.value,10)||0)+(+b.dataset.d)));dpDirty();
+});
+$('dpDef').onclick=()=>{$('jm').value=110;$('jk').value=170;dpDirty();};
+$('dpSave').onclick=()=>{
+  const m=val('jm'),k=val('jk');
+  if(isNaN(m)||isNaN(k)){toast('Minimum power 60-180, kick 0-255','err');return;}
+  act('/drive/save?jm='+m+'&jk='+k);
+};
+function renderDrive(d){
+  if(d.jm===undefined)return;
+  dpSaved=[d.jm,d.jk];
+  if(!dpLoaded){$('jm').value=d.jm;$('jk').value=d.jk;dpLoaded=true;}
+  dpDirty();
+}
 
 // ---------- system ----------
 function renderSys(d){
@@ -915,10 +953,10 @@ void stopSequence(const char* reason) {
 }
 
 // ---------------- Joystick (proportional + ramped) ----------------
-// Demand -1..1 -> PWM. Anything non-zero starts at JOY_MIN_PWM so the wheels actually move.
+// Demand -1..1 -> PWM. Anything non-zero starts at joyMinPwm so the wheels actually move.
 int demandToPwm(float v, int maxPwm) {
   if (fabsf(v) < 0.05f) return 0;
-  int p = JOY_MIN_PWM + (int)((maxPwm - JOY_MIN_PWM) * fabsf(v));
+  int p = joyMinPwm + (int)((maxPwm - joyMinPwm) * fabsf(v));
   return v > 0 ? p : -p;
 }
 
@@ -931,20 +969,20 @@ void joySetTarget(int x, int y, int speedPct) {
   float m = max(fabsf(l), fabsf(r));
   if (m > 1.0f) { l /= m; r /= m; }
   // Speed slider 20..100 % spans the usable range: 20 % = slowest crawl, 100 % = JOY_MAX_PWM
-  int maxPwm = JOY_MIN_PWM + (JOY_MAX_PWM - JOY_MIN_PWM) * (constrain(speedPct, 20, 100) - 20) / 80;
+  int maxPwm = joyMinPwm + (JOY_MAX_PWM - joyMinPwm) * (constrain(speedPct, 20, 100) - 20) / 80;
   joyTgtL = demandToPwm(l, maxPwm);
   joyTgtR = demandToPwm(r, maxPwm);
 }
 
-// One ramp step toward the target. Skips the dead band below JOY_MIN_PWM,
+// One ramp step toward the target. Skips the dead band below joyMinPwm,
 // and when reversing goes through 0 (brake) before starting the other way.
 float rampSide(float cur, int tgt, float step) {
   float next = cur;
   if (cur < tgt) next = min(cur + step, (float)tgt);
   if (cur > tgt) next = max(cur - step, (float)tgt);
-  if (fabsf(next) < JOY_MIN_PWM) {
+  if (fabsf(next) < joyMinPwm) {
     if (tgt == 0) next = 0;
-    else if (cur == 0 || (cur > 0) == (tgt > 0)) next = tgt > 0 ? JOY_MIN_PWM : -JOY_MIN_PWM;
+    else if (cur == 0 || (cur > 0) == (tgt > 0)) next = tgt > 0 ? joyMinPwm : -joyMinPwm;
     else next = 0;
   }
   return next;
@@ -1218,12 +1256,12 @@ void updateSequence() {
   }
 }
 
-// Kick-start: while the burst is active, drive at least JOY_KICK_PWM in the ramp's direction
+// Kick-start: while the burst is active, drive at least joyKickPwm in the ramp's direction
 unsigned long kickUntilL = 0, kickUntilR = 0;
 int kickOutput(float v, unsigned long until, unsigned long now) {
   int p = (int)v;
   if (p == 0 || (long)(now - until) >= 0) return p;
-  return p > 0 ? max(p, JOY_KICK_PWM) : min(p, -JOY_KICK_PWM);
+  return p > 0 ? max(p, joyKickPwm) : min(p, -joyKickPwm);
 }
 
 // Ramp motor PWM toward the joystick targets (called every loop)
@@ -1321,7 +1359,7 @@ void buildStatus(char* buf, size_t n) {
            "{\"status\":\"%s\",\"busy\":%s,\"md\":%d,\"fwd\":%lu,\"turn\":%lu,\"up\":%lu,\"rst\":\"%s\",\"heap\":%lu,"
            "\"sv\":%d,\"svb\":%s,\"sc\":%d,\"so\":%d,\"ss\":%d,\"sh\":%lu,\"sn\":%d,\"co\":%s,\"dc\":%lu,"
            "\"ml\":%d,\"mr\":%d,"
-           "\"mpu\":%s,\"hd\":%.1f,\"tl\":%.1f,\"tlt\":%s,\"gy\":%s,\"ta\":%.0f,\"tt\":%.0f,\"hh\":%s,\"sk\":%s}",
+           "\"mpu\":%s,\"hd\":%.1f,\"tl\":%.1f,\"tlt\":%s,\"gy\":%s,\"ta\":%.0f,\"tt\":%.0f,\"hh\":%s,\"sk\":%s,\"jm\":%d,\"jk\":%d}",
            statusText, mode != MODE_IDLE ? "true" : "false", (int)mode, forwardTime, turnTime,
            millis() / 1000, resetReason, (unsigned long)ESP.getFreeHeap(),
            (int)(servoPos + 0.5f), svPhase != SV_IDLE ? "true" : "false",
@@ -1329,7 +1367,7 @@ void buildStatus(char* buf, size_t n) {
            pwmL, pwmR,
            mpuOk ? "true" : "false", angleDiff(heading(), 0), tiltDeg, tiltLatched ? "true" : "false",
            useGyro ? "true" : "false", turnAngle, turnTrim, holdOn ? "true" : "false",
-           signKnown ? "true" : "false");
+           signKnown ? "true" : "false", joyMinPwm, joyKickPwm);
 }
 
 void handleStatus() {
@@ -1602,6 +1640,26 @@ void handleSave() {
   sendResult(200, true, buf);
 }
 
+// Drive power: minimum PWM and start kick. Applied immediately (also while driving) and saved.
+void handleDriveSave() {
+  lastClientMs = millis();
+  long jm = argOr("jm", joyMinPwm), jk = argOr("jk", joyKickPwm);
+  if (jm < 60 || jm > 180 || jk < 0 || jk > 255) {
+    sendResult(400, false, "Minimum power 60-180, kick 0-255");
+    return;
+  }
+  joyMinPwm = jm;
+  joyKickPwm = jk;
+  prefs.begin("rover", false);
+  prefs.putInt("jm", joyMinPwm);
+  prefs.putInt("jk", joyKickPwm);
+  prefs.end();
+  char b[48];
+  snprintf(b, sizeof(b), "Drive power saved: min %d, kick %d", joyMinPwm, joyKickPwm);
+  logEvent(b);
+  sendResult(200, true, b);
+}
+
 // Re-measure gyro drift + level (rover must be still). Also retries a missing MPU.
 void handleMpuCal() {
   lastClientMs = millis();
@@ -1633,6 +1691,8 @@ void loadSettings() {
   turnTrim  = constrain(prefs.getFloat("tt", 8), 0.0f, 45.0f);
   useGyro   = prefs.getBool("gy", true);
   holdOn    = prefs.getBool("hh", true);
+  joyMinPwm  = constrain(prefs.getInt("jm", JOY_MIN_DEF), 60, 180);
+  joyKickPwm = constrain(prefs.getInt("jk", JOY_KICK_DEF), 0, 255);
   signKnown = prefs.getBool("sk", false);
   yawSign   = prefs.getChar("ys", -1) > 0 ? 1 : -1;
   prefs.end();
@@ -1709,6 +1769,7 @@ void setup() {
   server.on("/square", handleSquare);
   server.on("/save",   handleSave);
   server.on("/mpu/cal", handleMpuCal);
+  server.on("/drive/save", handleDriveSave);
   server.onNotFound(handleNotFound);
   server.begin();
 
