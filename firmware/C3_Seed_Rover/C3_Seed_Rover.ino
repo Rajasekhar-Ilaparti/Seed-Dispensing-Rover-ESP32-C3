@@ -50,7 +50,9 @@
 #define JOY_DEADZONE  10    // joystick range is -100..100
 #define JOY_SWAP_LR   true  // swap joystick left/right
 #define JOY_MAX_PWM   200   // PWM at 100% speed (capped below 255 to protect the DRV8833)
-#define JOY_MIN_PWM   70    // lowest PWM that still turns the wheels
+#define JOY_MIN_PWM   90    // lowest PWM that keeps the rover rolling on the ground
+#define JOY_KICK_PWM  150   // short burst when a side starts from standstill (breaks static friction)
+#define JOY_KICK_MS   150   // length of that burst
 #define JOY_RAMP      900   // PWM change per second (0 -> 150 in ~0.17 s) = smooth start/stop
 
 // ---------------- MPU6050 (gyro turns, hold straight, tilt safety) ----------------
@@ -928,8 +930,8 @@ void joySetTarget(int x, int y, int speedPct) {
   float l = fy + fx, r = fy - fx;
   float m = max(fabsf(l), fabsf(r));
   if (m > 1.0f) { l /= m; r /= m; }
-  int maxPwm = JOY_MAX_PWM * constrain(speedPct, 20, 100) / 100;
-  if (maxPwm < JOY_MIN_PWM) maxPwm = JOY_MIN_PWM;
+  // Speed slider 20..100 % spans the usable range: 20 % = slowest crawl, 100 % = JOY_MAX_PWM
+  int maxPwm = JOY_MIN_PWM + (JOY_MAX_PWM - JOY_MIN_PWM) * (constrain(speedPct, 20, 100) - 20) / 80;
   joyTgtL = demandToPwm(l, maxPwm);
   joyTgtR = demandToPwm(r, maxPwm);
 }
@@ -1216,6 +1218,14 @@ void updateSequence() {
   }
 }
 
+// Kick-start: while the burst is active, drive at least JOY_KICK_PWM in the ramp's direction
+unsigned long kickUntilL = 0, kickUntilR = 0;
+int kickOutput(float v, unsigned long until, unsigned long now) {
+  int p = (int)v;
+  if (p == 0 || (long)(now - until) >= 0) return p;
+  return p > 0 ? max(p, JOY_KICK_PWM) : min(p, -JOY_KICK_PWM);
+}
+
 // Ramp motor PWM toward the joystick targets (called every loop)
 void updateJoy() {
   if (mode != MODE_JOY) return;
@@ -1237,8 +1247,12 @@ void updateJoy() {
 
   float l = rampSide(joyCurL, tl, step);
   float r = rampSide(joyCurR, tr, step);
-  if ((int)l != (int)joyCurL) setLeft((int)l);
-  if ((int)r != (int)joyCurR) setRight((int)r);
+  // A side leaving standstill (also after braking through 0 on a reversal) gets a kick
+  if (joyCurL == 0 && l != 0) kickUntilL = now + JOY_KICK_MS;
+  if (joyCurR == 0 && r != 0) kickUntilR = now + JOY_KICK_MS;
+  int ol = kickOutput(l, kickUntilL, now), orr = kickOutput(r, kickUntilR, now);
+  if (ol != pwmL) setLeft(ol);       // compare with what the motor actually has
+  if (orr != pwmR) setRight(orr);
   joyCurL = l;
   joyCurR = r;
 

@@ -161,7 +161,7 @@ ESP32-C3 main loop (non-blocking, millis() state machines)
 ```
 
 - **Motor drive.** Slow decay holds one DRV8833 input high and drives the other with an inverted PWM. Between pulses the motor brakes instead of coasting, which keeps the current up and gives BO motors far more torque at the same duty cycle. With fast decay, one side often stalled on pivot turns.
-- **Joystick.** Throttle and steering are mixed into left/right demand. Anything non-zero starts at the lowest PWM that still turns the wheels, then ramps at 900 PWM/s. While the stick is held, the page sends only joystick packets.
+- **Joystick.** Throttle and steering are mixed into left/right demand. The speed slider spans the usable range (20 % = slowest crawl at PWM 90, 100 % = PWM 200). A side starting from standstill gets a 150 ms kick at PWM 150 to break static friction, then ramps at 900 PWM/s. While the stick is held, the page sends only joystick packets.
 - **Gyro.** The MPU6050 is read with raw I2C registers (±500 °/s, 44 Hz low-pass), with no external library. Gyro drift is measured at boot. A turn ends at *turn angle − stop early*, and the real angle is reported once the rover stops coasting. Hold-straight is a proportional correction (±40 PWM maximum).
 - **Status.** The page asks for status over the existing WebSocket. HTTP polling is only a fallback.
 
