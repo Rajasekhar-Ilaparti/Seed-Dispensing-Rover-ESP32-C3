@@ -16,8 +16,8 @@
     GPIO10 -> servo signal (servo powered from the 5 V buck)
     GPIO20 -> MPU6050 SDA    GPIO21 -> MPU6050 SCL   (MPU6050 VCC -> 3V3)
     GND common to battery, TC1508A, buck, servo and MPU6050
-    Side/direction mapping for this wiring: SIDES_SWAPPED true, RIGHT_REVERSED false, JOY_SWAP_LR false.
-    On the original DRV8833 wiring (AO = left, BO = right) use false / true / true.
+    Side/direction mapping for this wiring: SIDES_SWAPPED true, LEFT_REVERSED true, RIGHT_REVERSED false,
+    JOY_SWAP_LR false. On the original DRV8833 wiring (AO = left, BO = right) use false / false / true / true.
 */
 
 #include <WiFi.h>
@@ -43,6 +43,7 @@
 #define TURN_SPEED  170     // pivot left / right
 
 #define SIDES_SWAPPED  true // TC1508A wiring: GPIO3/4 (MOTOR-A) drive the RIGHT wheels, GPIO5/6 (MOTOR-B) the LEFT
+#define LEFT_REVERSED  true // left side polarity reversed in software (TC1508A wiring)
 #define RIGHT_REVERSED false // right side polarity reversed in software (true on the old DRV8833 wiring)
 #define SLOW_DECAY     true // slow decay: fixes one side stalling on pivot turns
 
@@ -804,8 +805,9 @@ void driveChannel(uint8_t in1, uint8_t in2, int speed) {
 int pwmL = 0, pwmR = 0;             // last applied per side (for the dashboard)
 void setLeft(int speed) {
   pwmL = constrain(speed, -255, 255);
-  if (SIDES_SWAPPED) driveChannel(BIN1, BIN2, speed);
-  else               driveChannel(AIN1, AIN2, speed);
+  int v = LEFT_REVERSED ? -speed : speed;
+  if (SIDES_SWAPPED) driveChannel(BIN1, BIN2, v);
+  else               driveChannel(AIN1, AIN2, v);
 }
 void setRight(int speed) {
   pwmR = constrain(speed, -255, 255);

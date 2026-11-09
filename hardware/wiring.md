@@ -2,7 +2,7 @@
 
 All connections for the Seed Dispensing Rover. The pin numbers match the firmware. If you change any, change the `#define`s at the top of `C3_Seed_Rover.ino` too.
 
-The rover now runs on a **TC1508A** dual motor driver module. It was first built with a **DRV8833**; that wiring still works with three flag changes (see [Using a DRV8833 instead](#using-a-drv8833-instead)).
+The rover now runs on a **TC1508A** dual motor driver module. It was first built with a **DRV8833**; that wiring still works with four flag changes (see [Using a DRV8833 instead](#using-a-drv8833-instead)).
 
 ## Block diagram
 
@@ -61,11 +61,11 @@ Leave **GPIO 2, 8 and 9** unconnected, because they're boot strapping pins. **GP
 | MOTOR-A | Both **right** motors, in parallel |
 | MOTOR-B | Both **left** motors, in parallel |
 
-The firmware flags for this wiring are `SIDES_SWAPPED true`, `RIGHT_REVERSED false` and `JOY_SWAP_LR false`. If one side drives backwards, swap that motor pair's two wires. If the whole rover steers the wrong way, see [docs/calibration.md](../docs/calibration.md).
+The firmware flags for this wiring are `SIDES_SWAPPED true`, `LEFT_REVERSED true`, `RIGHT_REVERSED false` and `JOY_SWAP_LR false`. If one side drives backwards, swap that motor pair's two wires. If the whole rover steers the wrong way, see [docs/calibration.md](../docs/calibration.md).
 
 ### Using a DRV8833 instead
 
-Wire GPIO 3/4 → AIN1/AIN2 (left motors on AO1/AO2), GPIO 5/6 → BIN1/BIN2 (right motors on BO1/BO2) and GPIO 7 → STBY. Then set `SIDES_SWAPPED false`, `RIGHT_REVERSED true` and `JOY_SWAP_LR true`. The DRV8833 cuts out on sudden current surges, so it needs a higher `JOY_MIN_PWM` (about 110) and allows a higher `JOY_MAX_PWM` (up to 200).
+Wire GPIO 3/4 → AIN1/AIN2 (left motors on AO1/AO2), GPIO 5/6 → BIN1/BIN2 (right motors on BO1/BO2) and GPIO 7 → STBY. Then set `SIDES_SWAPPED false`, `LEFT_REVERSED false`, `RIGHT_REVERSED true` and `JOY_SWAP_LR true`. The DRV8833 cuts out on sudden current surges, so it needs a higher `JOY_MIN_PWM` (about 110) and allows a higher `JOY_MAX_PWM` (up to 200).
 
 ## 4. Servo (seed hopper)
 

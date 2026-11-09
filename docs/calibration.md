@@ -6,8 +6,8 @@ Do these steps in order after the first upload. Every value is saved on the rove
 
 1. Lift the rover so the wheels are off the ground.
 2. On the **Drive** tab, push the joystick gently forward. Both sides should spin forward.
-3. If one side spins backwards, swap that motor pair's wires.
-4. If forward makes the rover pivot, or left/right push it forward/back, the driver's channels are on the other sides: change `SIDES_SWAPPED` (and `RIGHT_REVERSED` if one side then runs backwards).
+3. If one side spins backwards, swap that motor pair's wires, or flip `LEFT_REVERSED` or `RIGHT_REVERSED` for that side.
+4. If forward makes the rover pivot, or left/right push it forward/back, the driver's channels are on the other sides: change `SIDES_SWAPPED` (and `LEFT_REVERSED` / `RIGHT_REVERSED` if one side then runs backwards).
 5. If only the joystick's left and right are swapped, change `JOY_SWAP_LR`.
 6. Then press **Test right turn** on the **Calibration** tab: the rover must pivot **right**. If it pivots left, the sides are mirrored; change `SIDES_SWAPPED` and `JOY_SWAP_LR` together.
 
