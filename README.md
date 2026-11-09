@@ -19,7 +19,7 @@ An **MPU6050** gyro gives accurate 90° turns, keeps the rover driving straight,
 
 **Driving**
 - Smooth proportional joystick (arcade mixing) over a WebSocket, about 10 commands per second
-- Acceleration ramp for soft starts and stops, and a braked pass through zero when reversing
+- Soft starts (gentle build-up from a stop, so the driver never cuts out), a braked pass through zero when reversing
 - Speed limit slider (20–100 %), remembered on the phone
 - Gyro "hold straight": corrects drift when the stick is pushed straight ahead or back
 - Slow-decay PWM at 1 kHz on the DRV8833 for full torque from BO motors on pivot turns
@@ -161,7 +161,7 @@ ESP32-C3 main loop (non-blocking, millis() state machines)
 ```
 
 - **Motor drive.** Slow decay holds one DRV8833 input high and drives the other with an inverted PWM. Between pulses the motor brakes instead of coasting, which keeps the current up and gives BO motors far more torque at the same duty cycle. With fast decay, one side often stalled on pivot turns.
-- **Joystick.** Throttle and steering are mixed into left/right demand. The speed slider spans the usable range: 20 % = the minimum drive power (default PWM 110), 100 % = PWM 200. A side starting from standstill gets a 150 ms kick (default PWM 170) to break static friction, then ramps at 900 PWM/s. Both values are adjustable on the Calibration tab. While the stick is held, the page sends only joystick packets.
+- **Joystick.** Throttle and steering are mixed into left/right demand. The speed slider spans the usable range: 20 % = the minimum drive power (default PWM 110, adjustable on the Calibration tab), 100 % = PWM 200. Starts are soft: a side leaving standstill begins at PWM 60 and speeds up at 300 PWM/s. A sudden large step into stalled motors trips the DRV8833's over-current protection, which makes the motors hum without moving. Slowing down and stopping use 900 PWM/s. While the stick is held, the page sends only joystick packets.
 - **Gyro.** The MPU6050 is read with raw I2C registers (±500 °/s, 44 Hz low-pass), with no external library. Gyro drift is measured at boot. A turn ends at *turn angle − stop early*, and the real angle is reported once the rover stops coasting. Hold-straight is a proportional correction (±40 PWM maximum).
 - **Status.** The page asks for status over the existing WebSocket. HTTP polling is only a fallback.
 
@@ -181,7 +181,7 @@ ESP32-C3 main loop (non-blocking, millis() state machines)
 | `/square` | Run the square path |
 | `/save?fwd=&turn=&ta=&tt=&gy=&hh=` | Save the square and gyro settings |
 | `/mpu/cal` | Recalibrate the gyro (rover must be still) |
-| `/drive/save?jm=&jk=` | Drive power: minimum PWM (60-180) and start kick (0-255, 0 = off) |
+| `/drive/save?jm=` | Drive power: minimum PWM while moving (60-180) |
 | `/log` | Recent event log (text) |
 
 WebSocket on port **81**: send `x,y,speed` to drive, `0,0` to release, `s` for status.

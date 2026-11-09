@@ -11,13 +11,11 @@ Do these steps in order after the first upload. Every value is saved on the rove
 
 ## 2. Drive power (low-speed driving)
 
-Four skid-steer wheels on the ground need more power to start than wheels spinning in the air.
-
 1. On the **Drive** tab, set the speed slider to **20 %** and drive forward on the floor.
 2. If the rover barely moves, open the **Calibration** tab. Raise **Minimum power** by +5 and press **Save drive power**. It applies straight away, so test again.
-3. Repeat until it rolls smoothly at 20 %. Lower **Start kick** if starts are jerky, or raise it if a side won't get moving from a stop.
+3. Repeat until it rolls smoothly at 20 %. Default: 110.
 
-Defaults: minimum 110, kick 170.
+Starts are always soft (from PWM 60, building up at 300 PWM/s). If a side still won't start on the ground but spins in the air, check that its gearbox turns freely by hand. A stiff gearbox is enough to stop it.
 
 ## 2b. Gyro
 

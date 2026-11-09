@@ -51,8 +51,8 @@
 #define JOY_SWAP_LR   true  // swap joystick left/right
 #define JOY_MAX_PWM   200   // PWM at 100% speed (capped below 255 to protect the DRV8833)
 #define JOY_MIN_DEF   110   // default: lowest PWM that keeps the rover rolling on the ground
-#define JOY_KICK_DEF  170   // default: short burst when a side starts from standstill (0 = off)
-#define JOY_KICK_MS   150   // length of that burst
+#define JOY_START_PWM 60    // soft start: a side leaving standstill begins here...
+#define JOY_ACCEL     300   // ...and speeds up at this many PWM/s (a sudden full step trips the DRV8833 current limit)
 #define JOY_RAMP      900   // PWM change per second (0 -> 150 in ~0.17 s) = smooth start/stop
 
 // ---------------- MPU6050 (gyro turns, hold straight, tilt safety) ----------------
@@ -93,7 +93,6 @@ float turnAngle = 90;               // deg per test turn / square corner
 float turnTrim  = 8;                // deg: stop this much early to allow for coasting
 bool  holdOn    = true;             // use the gyro to drive straight
 int   joyMinPwm = JOY_MIN_DEF;      // drive power: minimum PWM (Calibration tab)
-int   joyKickPwm = JOY_KICK_DEF;    // drive power: start kick PWM (Calibration tab)
 
 // ---------------- State machine ----------------
 enum Mode  { MODE_IDLE, MODE_TEST, MODE_SQUARE, MODE_JOY };
@@ -437,14 +436,10 @@ body.t-drive #stCard{display:none}
 </div>
 <div class="card span">
 <div class="ct"><h2>Drive power</h2><span class="aux" id="dpDirty"></span></div>
-<div class="cols">
 <div class="field"><div class="fl"><span>Minimum power</span><span>60-180</span></div>
 <div class="inp"><button class="l dps" data-t="jm" data-d="-5">&minus;5</button><input id="jm" type="number" inputmode="numeric" min="60" max="180" step="5" style="text-align:center"><button class="dps" data-t="jm" data-d="5">+5</button></div></div>
-<div class="field"><div class="fl"><span>Start kick</span><span>0 = off</span></div>
-<div class="inp"><button class="l dps" data-t="jk" data-d="-10">&minus;10</button><input id="jk" type="number" inputmode="numeric" min="0" max="255" step="10" style="text-align:center"><button class="dps" data-t="jk" data-d="10">+10</button></div></div>
-</div>
-<div class="hint">Minimum power is what the rover drives at with the speed slider at 20 %. Raise it until the rover rolls smoothly at low speed. The kick is a short burst that gets each side moving from a stop. Saving applies it straight away.</div>
-<div class="btns"><button id="dpDef" class="btn">Defaults (110 / 170)</button><button id="dpSave" class="btn pri">Save drive power</button></div>
+<div class="hint">The lowest power the rover drives at while moving (speed slider at 20 %). Starts are always soft: each side builds up gently from a stop, so the motor driver doesn't cut out. Saving applies it straight away.</div>
+<div class="btns"><button id="dpDef" class="btn">Default (110)</button><button id="dpSave" class="btn pri">Save drive power</button></div>
 </div>
 </section>
 
@@ -680,24 +675,24 @@ $('mcal').onclick=()=>{toast('Calibrating - keep the rover still');act('/mpu/cal
 // ---------- drive power ----------
 let dpLoaded=false,dpSaved=null;
 function dpDirty(){
-  const d=!!dpSaved&&(val('jm')!==dpSaved[0]||val('jk')!==dpSaved[1]);
+  const d=dpSaved!==null&&val('jm')!==dpSaved;
   $('dpDirty').textContent=d?'Unsaved changes':'';$('dpDirty').style.color=d?'var(--wn)':'';
 }
-['jm','jk'].forEach(id=>$(id).addEventListener('input',dpDirty));
+$('jm').addEventListener('input',dpDirty);
 document.querySelectorAll('.dps').forEach(b=>b.onclick=()=>{
   const e=$(b.dataset.t);
   e.value=Math.min(+e.max,Math.max(+e.min,(parseInt(e.value,10)||0)+(+b.dataset.d)));dpDirty();
 });
-$('dpDef').onclick=()=>{$('jm').value=110;$('jk').value=170;dpDirty();};
+$('dpDef').onclick=()=>{$('jm').value=110;dpDirty();};
 $('dpSave').onclick=()=>{
-  const m=val('jm'),k=val('jk');
-  if(isNaN(m)||isNaN(k)){toast('Minimum power 60-180, kick 0-255','err');return;}
-  act('/drive/save?jm='+m+'&jk='+k);
+  const m=val('jm');
+  if(isNaN(m)){toast('Minimum power 60-180','err');return;}
+  act('/drive/save?jm='+m);
 };
 function renderDrive(d){
   if(d.jm===undefined)return;
-  dpSaved=[d.jm,d.jk];
-  if(!dpLoaded){$('jm').value=d.jm;$('jk').value=d.jk;dpLoaded=true;}
+  dpSaved=d.jm;
+  if(!dpLoaded){$('jm').value=d.jm;dpLoaded=true;}
   dpDirty();
 }
 
@@ -974,18 +969,22 @@ void joySetTarget(int x, int y, int speedPct) {
   joyTgtR = demandToPwm(r, maxPwm);
 }
 
-// One ramp step toward the target. Skips the dead band below joyMinPwm,
-// and when reversing goes through 0 (brake) before starting the other way.
-float rampSide(float cur, int tgt, float step) {
-  float next = cur;
-  if (cur < tgt) next = min(cur + step, (float)tgt);
-  if (cur > tgt) next = max(cur - step, (float)tgt);
-  if (fabsf(next) < joyMinPwm) {
-    if (tgt == 0) next = 0;
-    else if (cur == 0 || (cur > 0) == (tgt > 0)) next = tgt > 0 ? joyMinPwm : -joyMinPwm;
-    else next = 0;
+// One ramp step toward the target (dt in seconds).
+//  - Starting from standstill: begin at JOY_START_PWM and speed up gently at JOY_ACCEL, so the
+//    stalled motors never get a sudden large step (that trips the driver's over-current limit).
+//  - Slowing down / stopping: JOY_RAMP; below joyMinPwm it drops straight to 0 (brake) so the
+//    motors don't sit humming.
+//  - Reversing: slow to 0 first, then soft-start the other way.
+float rampSide(float cur, int tgt, float dt) {
+  float down = JOY_RAMP * dt;
+  if (tgt == 0 || (cur != 0 && (cur > 0) != (tgt > 0))) {     // stop, or reverse via 0
+    float n = cur > 0 ? max(cur - down, 0.0f) : min(cur + down, 0.0f);
+    return fabsf(n) < joyMinPwm ? 0 : n;
   }
-  return next;
+  float a = fabsf(cur), t = abs(tgt), sgn = tgt > 0 ? 1.0f : -1.0f;
+  if (a < t) a = (a == 0) ? min((float)JOY_START_PWM, t) : min(a + JOY_ACCEL * dt, t);
+  else       a = max(a - down, t);
+  return sgn * a;
 }
 
 // =====================================================================
@@ -1256,20 +1255,12 @@ void updateSequence() {
   }
 }
 
-// Kick-start: while the burst is active, drive at least joyKickPwm in the ramp's direction
-unsigned long kickUntilL = 0, kickUntilR = 0;
-int kickOutput(float v, unsigned long until, unsigned long now) {
-  int p = (int)v;
-  if (p == 0 || (long)(now - until) >= 0) return p;
-  return p > 0 ? max(p, joyKickPwm) : min(p, -joyKickPwm);
-}
-
 // Ramp motor PWM toward the joystick targets (called every loop)
 void updateJoy() {
   if (mode != MODE_JOY) return;
   unsigned long now = millis();
   if (now == joyLastRamp) return;
-  float step = JOY_RAMP * (now - joyLastRamp) / 1000.0f;
+  float dt = (now - joyLastRamp) / 1000.0f;
   joyLastRamp = now;
 
   // Straight ahead/back: gyro trims the two sides so the rover doesn't drift
@@ -1283,12 +1274,9 @@ void updateJoy() {
     joyHoldActive = false;
   }
 
-  float l = rampSide(joyCurL, tl, step);
-  float r = rampSide(joyCurR, tr, step);
-  // A side leaving standstill (also after braking through 0 on a reversal) gets a kick
-  if (joyCurL == 0 && l != 0) kickUntilL = now + JOY_KICK_MS;
-  if (joyCurR == 0 && r != 0) kickUntilR = now + JOY_KICK_MS;
-  int ol = kickOutput(l, kickUntilL, now), orr = kickOutput(r, kickUntilR, now);
+  float l = rampSide(joyCurL, tl, dt);
+  float r = rampSide(joyCurR, tr, dt);
+  int ol = (int)l, orr = (int)r;
   if (ol != pwmL) setLeft(ol);       // compare with what the motor actually has
   if (orr != pwmR) setRight(orr);
   joyCurL = l;
@@ -1359,7 +1347,7 @@ void buildStatus(char* buf, size_t n) {
            "{\"status\":\"%s\",\"busy\":%s,\"md\":%d,\"fwd\":%lu,\"turn\":%lu,\"up\":%lu,\"rst\":\"%s\",\"heap\":%lu,"
            "\"sv\":%d,\"svb\":%s,\"sc\":%d,\"so\":%d,\"ss\":%d,\"sh\":%lu,\"sn\":%d,\"co\":%s,\"dc\":%lu,"
            "\"ml\":%d,\"mr\":%d,"
-           "\"mpu\":%s,\"hd\":%.1f,\"tl\":%.1f,\"tlt\":%s,\"gy\":%s,\"ta\":%.0f,\"tt\":%.0f,\"hh\":%s,\"sk\":%s,\"jm\":%d,\"jk\":%d}",
+           "\"mpu\":%s,\"hd\":%.1f,\"tl\":%.1f,\"tlt\":%s,\"gy\":%s,\"ta\":%.0f,\"tt\":%.0f,\"hh\":%s,\"sk\":%s,\"jm\":%d}",
            statusText, mode != MODE_IDLE ? "true" : "false", (int)mode, forwardTime, turnTime,
            millis() / 1000, resetReason, (unsigned long)ESP.getFreeHeap(),
            (int)(servoPos + 0.5f), svPhase != SV_IDLE ? "true" : "false",
@@ -1367,7 +1355,7 @@ void buildStatus(char* buf, size_t n) {
            pwmL, pwmR,
            mpuOk ? "true" : "false", angleDiff(heading(), 0), tiltDeg, tiltLatched ? "true" : "false",
            useGyro ? "true" : "false", turnAngle, turnTrim, holdOn ? "true" : "false",
-           signKnown ? "true" : "false", joyMinPwm, joyKickPwm);
+           signKnown ? "true" : "false", joyMinPwm);
 }
 
 void handleStatus() {
@@ -1640,22 +1628,21 @@ void handleSave() {
   sendResult(200, true, buf);
 }
 
-// Drive power: minimum PWM and start kick. Applied immediately (also while driving) and saved.
+// Drive power: minimum PWM while moving. Applied immediately (also while driving) and saved.
 void handleDriveSave() {
   lastClientMs = millis();
-  long jm = argOr("jm", joyMinPwm), jk = argOr("jk", joyKickPwm);
-  if (jm < 60 || jm > 180 || jk < 0 || jk > 255) {
-    sendResult(400, false, "Minimum power 60-180, kick 0-255");
+  long jm = argOr("jm", joyMinPwm);
+  if (jm < 60 || jm > 180) {
+    sendResult(400, false, "Minimum power 60-180");
     return;
   }
   joyMinPwm = jm;
-  joyKickPwm = jk;
   prefs.begin("rover", false);
   prefs.putInt("jm", joyMinPwm);
-  prefs.putInt("jk", joyKickPwm);
+  prefs.remove("jk");                     // old start-kick setting (no longer used)
   prefs.end();
-  char b[48];
-  snprintf(b, sizeof(b), "Drive power saved: min %d, kick %d", joyMinPwm, joyKickPwm);
+  char b[40];
+  snprintf(b, sizeof(b), "Drive power saved: min %d", joyMinPwm);
   logEvent(b);
   sendResult(200, true, b);
 }
@@ -1692,7 +1679,6 @@ void loadSettings() {
   useGyro   = prefs.getBool("gy", true);
   holdOn    = prefs.getBool("hh", true);
   joyMinPwm  = constrain(prefs.getInt("jm", JOY_MIN_DEF), 60, 180);
-  joyKickPwm = constrain(prefs.getInt("jk", JOY_KICK_DEF), 0, 255);
   signKnown = prefs.getBool("sk", false);
   yawSign   = prefs.getChar("ys", -1) > 0 ? 1 : -1;
   prefs.end();
